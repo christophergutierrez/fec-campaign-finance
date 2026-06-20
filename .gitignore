@@ -1,0 +1,19 @@
+# Bulk data & derived stores — re-creatable via bin/ingest.py, never commit
+data/
+!data/.gitkeep
+parquet_store/
+*.db
+*.db.wal
+*.zip.part
+*.csv.part
+*.txt
+
+# Logs
+*.log
+
+# Stray caches from other tooling
+.fastembed_cache/
+
+# Python / uv
+__pycache__/
+.venv/
