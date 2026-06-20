@@ -74,9 +74,7 @@ ILIKE and expect dupes. There are no canonical donor ids in bulk data.
 
 ### ⚠️ One cycle per generated store
 
-Everything in the current generated store is 2026. Other cycles require a fresh
-generated store (`bin/ingest.py --cycle YYYY` refuses to mix with an existing
-cycle).
+Everything in the current generated store is 2026. Other cycles require a fresh generated store (`bin/ingest.py --cycle YYYY` refuses to mix with an existing cycle).
 
 ## Tables
 
@@ -242,3 +240,4 @@ Lossless originals — every FEC column as text. Useful for columns the curated 
 | `raw_ie.parquet` | 9,609 | 23 | Raw independent expenditures (FEC CSV). Source of fact_independent_expenditures. All 23 original columns as text. |
 | `raw_indiv.parquet` | 25,454,311 | 21 | Raw itemized individual contributions (FEC itcont). Source of fact_individual_contributions. Has MEMO_CD (not in curated table). |
 | `raw_pas2.parquet` | 157,846 | 22 | Raw committee->candidate transactions (FEC itpas2). Source of fact_contributions. |
+
