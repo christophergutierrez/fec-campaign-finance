@@ -1,0 +1,81 @@
+# committee_interests.csv — curated committee -> interest-group dictionary.
+#
+# Source of truth for dim_group_mappings. Hand-curated (NOT keyword-matched) so
+# false positives and opposite-stance groups are excluded. Load with:
+#     bin/load_interests.py
+#
+# Columns: cmte_id,category,notes
+# Lines starting with '#' and blank lines are ignored by the loader.
+# Stance is encoded in the category (e.g. pro vs dovish vs critical) so summing a
+# category never conflates groups that actually oppose each other.
+#
+# ---------------------------------------------------------------------------
+# ISRAEL-ALIGNED (pro-Israel / AIPAC-aligned; back pro-Israel candidates)
+# ---------------------------------------------------------------------------
+cmte_id,category,notes
+C00797670,Israel-aligned,AIPAC PAC (conventional bundling PAC)
+C00799031,Israel-aligned,United Democracy Project (UDP) — AIPAC super PAC / IE arm
+C00247403,Israel-aligned,NORPAC
+C00141747,Israel-aligned,Friends of Israel PAC (FIPAC)
+C00127811,Israel-aligned,U.S. Israel PAC (USI PAC)
+C00490649,Israel-aligned,U.S. Israel Friendship PAC
+C90019431,Israel-aligned,Pro-Israel America Inc (IE filer)
+C00687657,Israel-aligned,American Pro-Israel PAC
+C00922781,Israel-aligned,Americans for Israel for America
+C00712844,Israel-aligned,Defenders of Israel PAC
+C00720128,Israel-aligned,Christians for Israel PAC
+C00856377,Israel-aligned,Israel Today
+C90022864,Israel-aligned,Democratic Majority for Israel (DMFI) (IE filer)
+C90013244,Israel-aligned,Emergency Committee for Israel (IE filer)
+C90018326,Israel-aligned,Bi-Partisan Supporters of U.S.-Israel Relationship (IE filer)
+C00761965,Israel-aligned,Democrats for Israel Los Angeles
+C00755991,Israel-aligned,Democrats for Israel Orange County
+#
+# ---------------------------------------------------------------------------
+# ISRAEL-DOVISH (J Street: pro-Israel/pro-peace; frequently OPPOSES AIPAC picks
+# — kept separate so it is never summed with the hawkish bloc)
+# ---------------------------------------------------------------------------
+C90014028,Israel-dovish (J Street),J Street (IE filer)
+C00815753,Israel-dovish (J Street),J Street Action Fund
+C00441949,Israel-dovish (J Street),JStreetPAC
+#
+# ---------------------------------------------------------------------------
+# ISRAEL-CRITICAL (explicitly anti-AIPAC)
+# ---------------------------------------------------------------------------
+C00879080,Israel-critical (anti-AIPAC),Citizens Against AIPAC Corruption
+C00876649,Israel-critical (anti-AIPAC),Reject AIPAC PAC
+#
+# ---------------------------------------------------------------------------
+# CRYPTO / DIGITAL ASSETS
+# ---------------------------------------------------------------------------
+C00835959,Crypto/digital assets,Fairshake — flagship crypto super PAC
+C00836221,Crypto/digital assets,Defend American Jobs — Fairshake affiliate (GOP-side)
+C00848440,Crypto/digital assets,Protect Progress — Fairshake affiliate (Dem-side)
+C00804179,Crypto/digital assets,Coinbase Innovation PAC
+C00824896,Crypto/digital assets,Blockchain Association PAC
+C00779819,Crypto/digital assets,American Blockchain PAC
+C00851873,Crypto/digital assets,Blockchain Freedom PAC
+C00918722,Crypto/digital assets,Blockchain Leadership Fund
+C00897595,Crypto/digital assets,Campaign Crypto PAC
+C00942318,Crypto/digital assets,Crypto Council for Innovation PAC (CCI PAC)
+C00567412,Crypto/digital assets,Chamber of Digital Commerce PAC
+C00882472,Crypto/digital assets,Crypto / Bitcoin USA Super PAC
+C00707356,Crypto/digital assets,Crypto and Data Center PAC
+C00816892,Crypto/digital assets,Crypto Freedom PAC
+C00804732,Crypto/digital assets,Crypto Innovation
+C00941146,Crypto/digital assets,Foris DAX (Crypto.com) PAC
+C00879452,Crypto/digital assets,Galaxy Digital PAC
+C00904425,Crypto/digital assets,Main Street Crypto PAC
+C00876631,Crypto/digital assets,Stand With Crypto Alliance PAC
+#
+# ---------------------------------------------------------------------------
+# REVIEWED & EXCLUDED (documented so the omissions are auditable, not accidental)
+#   C00782532 Shield AI PAC (SAIPAC) — defense-tech company, NOT Israel-related
+#   C00913475 Nick For Israel For Congress — candidate committee, not an interest group
+#   C00336057 Array Digital Infrastructure PAC — telecom infra, not crypto
+#   C00400333 InterDigital PAC — telecom/patent licensing, not crypto
+#   C00899757 Scott Digital Victory Fund — candidate joint-fundraising cmte
+#   C00887398 Digital Identity Rights PAC — digital-ID policy, not crypto
+# AMBIGUOUS — left out pending research (name alone insufficient):
+#   Digital Future PAC, Digital Freedom Fund, Digital Leadership Fund,
+#   First Principles Digital, New. Digital. Now., Liberty Digital PAC

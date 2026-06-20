@@ -1,0 +1,214 @@
+// fec.malloy — semantic model for the FEC campaign-finance DB.
+//
+// This is the Malloy-facing semantic model. The executable calculation
+// definitions live in sql/views/ and sql/queries/; keep this file aligned with
+// those SQL files rather than treating it as a competing source of truth.
+//
+// Not wired to a runtime here. Assumes a DuckDB connection named `duckdb` attached
+// to fec_campaign_finance.db. See DATA_DICTIONARY.md for table/column docs.
+
+// ===========================================================================
+// Dimensions (entities)
+// ===========================================================================
+
+source: candidates is duckdb.table('dim_candidates') extend {
+  primary_key: CAND_ID
+  dimension:
+    office is CAND_OFFICE              // H House · S Senate · P President
+    home_state is CAND_OFFICE_ST       // the constituency (constituent proxy)
+    party is CAND_PTY_AFFILIATION
+    is_incumbent is CAND_ICI = 'I'
+  measure: candidate_count is count()
+}
+
+source: group_mappings is duckdb.table('dim_group_mappings') extend {
+  primary_key: CMTE_ID
+  // custom_category encodes stance (e.g. 'Israel-aligned' vs 'Israel-dovish
+  // (J Street)' vs 'Israel-critical (anti-AIPAC)') so opposed groups never merge.
+}
+
+source: committees is duckdb.table('dim_committees') extend {
+  primary_key: CMTE_ID
+  join_one: interest is group_mappings on CMTE_ID = interest.CMTE_ID
+  dimension:
+    committee_type is CMTE_TP
+    interest_category is interest.custom_category
+}
+
+// ===========================================================================
+// Raw fact tables (table-level documentation + direct measures)
+// ===========================================================================
+
+// Committee -> candidate (itpas2). GOTCHA: also contains IE rows (24E/24A) that
+// overlap fact_independent_expenditures. `direct_amount` is the true direct money.
+source: contributions is duckdb.table('fact_contributions') extend {
+  primary_key: SUB_ID
+  join_one: source_committee is committees on SOURCE_CMTE_ID = source_committee.CMTE_ID
+  join_one: target_candidate is candidates on TARGET_CAND_ID = target_candidate.CAND_ID
+  dimension:
+    is_ie_for is TRANSACTION_TP = '24E'
+    is_ie_against is TRANSACTION_TP = '24A'
+    is_direct is not (TRANSACTION_TP = '24E' or TRANSACTION_TP = '24A'
+                      or TRANSACTION_TP = '24C' or TRANSACTION_TP = '24N')
+  measure:
+    direct_amount is AMOUNT.sum() { where: is_direct }   // true direct PAC $
+    total_amount is AMOUNT.sum()                          // incl. IE — usually wrong
+}
+
+// Individual -> committee (itcont). Join key is TARGET_CMTE_ID, not CMTE_ID.
+source: individual_contributions is duckdb.table('fact_individual_contributions') extend {
+  primary_key: SUB_ID
+  join_one: committee is committees on TARGET_CMTE_ID = committee.CMTE_ID
+  dimension:
+    donor_state is STATE
+    is_small_dollar is AMOUNT <= 200 and AMOUNT > 0
+  measure:
+    total_amount is AMOUNT.sum()
+}
+
+// Independent expenditures (dedicated CSV). Money spent FOR/AGAINST, never paid to
+// the candidate. Clean = original filings (AMNDT_IND='N') from a real committee.
+source: independent_expenditures is duckdb.table('fact_independent_expenditures') extend {
+  primary_key: IE_ID
+  join_one: spender is committees on SPENDER_CMTE_ID = spender.CMTE_ID
+  join_one: target_candidate is candidates on TARGET_CAND_ID = target_candidate.CAND_ID
+  dimension:
+    is_original is AMNDT_IND = 'N'
+    supports is SUPPORT_OPPOSE = 'S'
+    opposes is SUPPORT_OPPOSE = 'O'
+    is_real_spender is spender.CMTE_ID is not null    // excludes junk self-filings
+  measure:
+    support_amount is AMOUNT.sum() { where: is_original and supports and is_real_spender }
+    oppose_amount is AMOUNT.sum() { where: is_original and opposes and is_real_spender }
+    raw_amount is AMOUNT.sum()        // ~$39B incl. junk — do NOT use
+}
+
+// ===========================================================================
+// candidate_money — unified model: all money flows normalized to one grain
+// (one row per dollar-flow, tagged by channel). Mirrors sql/views/candidate_money.sql.
+// ===========================================================================
+
+source: candidate_money is duckdb.sql("""
+    WITH candidate_committees AS (
+      SELECT DISTINCT CAND_ID, CMTE_ID
+      FROM bridge_candidate_committee
+      WHERE CMTE_DSGN IN ('P', 'A') AND CMTE_TP IN ('H', 'S', 'P')
+    ),
+    clean_individual_contributions AS (
+      SELECT
+        TRY_CAST(SUB_ID AS BIGINT) AS SUB_ID,
+        CMTE_ID AS TARGET_CMTE_ID,
+        NAME AS CONTRIBUTOR_NAME,
+        STATE,
+        EMPLOYER,
+        TRY_CAST(TRANSACTION_AMT AS DECIMAL(14,2)) AS AMOUNT,
+        ENTITY_TP,
+        MEMO_CD
+      FROM read_parquet('parquet_store/raw_indiv.parquet')
+      WHERE ENTITY_TP = 'IND'
+        AND (MEMO_CD IS NULL OR MEMO_CD <> 'X')
+    ),
+    clean_independent_expenditures AS (
+      SELECT i.*
+      FROM fact_independent_expenditures i
+      JOIN dim_committees cm ON cm.CMTE_ID = i.SPENDER_CMTE_ID
+      WHERE i.AMNDT_IND = 'N'
+    )
+    -- individual -> candidate (rolled up via the candidate<->committee bridge)
+    SELECT b.CAND_ID             AS cand_id,
+           'individual'         AS channel,
+           i.AMOUNT             AS amount,
+           i.STATE              AS donor_state,
+           i.CONTRIBUTOR_NAME    AS contributor_name,
+           i.EMPLOYER            AS employer,
+           CAST(NULL AS VARCHAR) AS interest_category
+    FROM clean_individual_contributions i
+    JOIN candidate_committees b ON b.CMTE_ID = i.TARGET_CMTE_ID
+
+    UNION ALL
+    -- direct PAC -> candidate (IE transaction types excluded)
+    SELECT f.TARGET_CAND_ID, 'direct_pac', f.AMOUNT,
+           CAST(NULL AS VARCHAR), CAST(NULL AS VARCHAR), CAST(NULL AS VARCHAR),
+           g.custom_category
+    FROM fact_contributions f
+    LEFT JOIN dim_group_mappings g ON g.CMTE_ID = f.SOURCE_CMTE_ID
+    WHERE f.TRANSACTION_TP NOT IN ('24E','24A','24C','24N')
+
+    UNION ALL
+    -- IE supporting the candidate (clean: original filing, real spender)
+    SELECT i.TARGET_CAND_ID, 'ie_support', i.AMOUNT,
+           CAST(NULL AS VARCHAR), CAST(NULL AS VARCHAR), CAST(NULL AS VARCHAR),
+           g.custom_category
+    FROM clean_independent_expenditures i
+    LEFT JOIN dim_group_mappings g ON g.CMTE_ID = i.SPENDER_CMTE_ID
+    WHERE i.SUPPORT_OPPOSE = 'S'
+
+    UNION ALL
+    -- IE opposing the candidate (tied to them, but works for the opponent)
+    SELECT i.TARGET_CAND_ID, 'ie_oppose', i.AMOUNT,
+           CAST(NULL AS VARCHAR), CAST(NULL AS VARCHAR), CAST(NULL AS VARCHAR),
+           g.custom_category
+    FROM clean_independent_expenditures i
+    LEFT JOIN dim_group_mappings g ON g.CMTE_ID = i.SPENDER_CMTE_ID
+    WHERE i.SUPPORT_OPPOSE = 'O'
+""") extend {
+  join_one: candidate is candidates on cand_id = candidate.CAND_ID
+
+  dimension:
+    is_individual is channel = 'individual'
+    is_direct_pac is channel = 'direct_pac'
+    is_ie_support is channel = 'ie_support'
+    is_ie_oppose is channel = 'ie_oppose'
+    // constituent proxy: an individual gift from the candidate's home state
+    is_in_state is channel = 'individual' and donor_state = candidate.home_state
+    is_small_dollar is channel = 'individual' and amount > 0 and amount <= 200
+
+  measure:
+    // --- channel totals -----------------------------------------------------
+    individual_amount  is amount.sum() { where: is_individual }
+    direct_pac_amount  is amount.sum() { where: is_direct_pac }
+    ie_support_amount  is amount.sum() { where: is_ie_support }
+    ie_oppose_amount   is amount.sum() { where: is_ie_oppose }
+    in_state_amount    is amount.sum() { where: is_in_state }
+    small_dollar_amount is amount.sum() { where: is_small_dollar }
+
+    // --- derived totals (this project's "gross vs net" — see CALCULATIONS.md) -
+    // raised = money the candidate RECEIVES & CONTROLS.
+    //   Use for: war-chest size, fundraising strength, per-limit analysis.
+    //   Don't use for: total resources electing them (omits the IE air war).
+    raised is amount.sum() { where: is_individual or is_direct_pac }
+    // total_backing = all money WORKING TO ELECT them (raised + IE support).
+    //   Use for: the ownership question; denominator of outside_share/interest_share.
+    //   Don't use for: "how much did they raise" (overstates — incl. money untouched).
+    // Excludes ie_oppose, which works for the opponent.
+    total_backing is amount.sum() { where: not is_ie_oppose }
+
+    // --- influence shares (denominators per CALCULATIONS.md) ---------------
+    // composition of RAISED money:
+    pac_share is direct_pac_amount / raised
+    // composition of INDIVIDUAL money (constituent / grassroots signals):
+    out_of_state_share is 1 - (in_state_amount / individual_amount)
+    small_dollar_share is small_dollar_amount / individual_amount
+    // composition of TOTAL BACKING (who is behind the candidacy):
+    outside_share is ie_support_amount / total_backing
+
+  // Interest-bloc backing by category: numerator for interest_share. The share is
+  // backing_in_category / total_backing (compute against total_backing above).
+  view: interest_backing is {
+    where: not is_ie_oppose and interest_category != null
+    group_by: cand_id, candidate.CAND_NAME, candidate.CAND_OFFICE, candidate.CAND_OFFICE_ST,
+      candidate.CAND_OFFICE_DISTRICT, interest_category
+    aggregate: backing_in_category is amount.sum()
+    order_by: backing_in_category desc
+  }
+
+  // Per-state individual money (feeds the out-of-state HHI concentration metric;
+  // HHI = sum of squared out-of-state state shares — computed in influence.py).
+  view: individual_by_state is {
+    where: is_individual and donor_state != candidate.home_state and amount > 0
+    group_by: cand_id, candidate.CAND_NAME, candidate.CAND_OFFICE, candidate.CAND_OFFICE_ST,
+      candidate.CAND_OFFICE_DISTRICT, donor_state
+    aggregate: state_amount is amount.sum()
+    order_by: state_amount desc
+  }
+}
