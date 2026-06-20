@@ -5,5 +5,5 @@ SELECT
 FROM clean_independent_expenditures
 WHERE TARGET_CAND_ID = $cand_id
 GROUP BY 1,2
-ORDER BY amount DESC
+ORDER BY amount DESC, SPENDER_NAME
 LIMIT $limit;

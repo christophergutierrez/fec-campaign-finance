@@ -14,6 +14,7 @@ bin/      executable tools (uv self-contained scripts)
             load_interests.py load the committee→interest dictionary
             gen_dict.py       regenerate docs/DATA_DICTIONARY.md from the live DB
             influence.py      funding-influence profile / cohort ranking
+                              (--export-infographic DIR writes chart-ready angle JSON)
 sql/      executable semantic layer (canonical temp views + report queries)
 model/    semantic layer + curated inputs
             fec.malloy             semantic model (joins + measures)
@@ -50,6 +51,22 @@ No virtualenv to manage.
 In locked-down/offline environments, create the environment ahead of time or set a
 writable cache path such as `UV_CACHE_DIR=/tmp/uv-cache`. The project also has a
 `pyproject.toml` with the same dependency bounds for repeatable setup.
+
+## Infographic export
+
+`bin/influence.py` can emit per-candidate, chart-ready JSON — one file per funding
+"angle" (donor-size, geography, money composition, PAC roster, and outside-spending
+signals), each a self-contained brief for one static chart:
+
+```bash
+uv run bin/influence.py S6MI00426 --export-infographic infographics/stevens
+```
+
+Output lands in the given directory as `NN-<angle-id>.json`. `infographics/` is
+git-ignored — the files are regenerable output, not source. Which angles appear
+differs per candidate: structural angles always emit, while outside-money/interest
+signals appear only when they clear a materiality floor. See
+`docs/INFOGRAPHIC_EXPORT.md` for the angle catalog, inclusion rules, and JSON schema.
 
 ## Data flow
 

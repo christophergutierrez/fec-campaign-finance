@@ -7,6 +7,7 @@ parquet_store/
 *.zip.part
 *.csv.part
 *.txt
+infographics/
 
 # Logs
 *.log
