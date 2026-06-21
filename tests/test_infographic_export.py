@@ -27,11 +27,11 @@ REQUIRED_ANGLE = {"id", "title", "reason", "metric", "metric_value", "threshold"
 PARTITION_ANGLES = {"donor-size", "geography", "composition", "pac-roster"}
 
 
-def export(out_dir: Path) -> subprocess.CompletedProcess:
+def export(out_dir: Path, cand: str = CAND) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     env.setdefault("UV_CACHE_DIR", "/tmp/uv-cache")
     result = subprocess.run(
-        ["uv", "run", "bin/influence.py", CAND, "--export-infographic", str(out_dir)],
+        ["uv", "run", "bin/influence.py", cand, "--export-infographic", str(out_dir)],
         cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
     )
     if result.returncode != 0:

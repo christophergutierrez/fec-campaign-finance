@@ -60,6 +60,15 @@ FLOOR_OUTSIDE = 0.30
 FLOOR_LOW_SMALL = 0.90
 FLOOR_BLOC = 0.08
 
+# Viability floors for the infographic export: below these, an angle has too
+# little money/data behind it to be worth a graphic. Applied per channel, so a
+# candidate thin on one channel but heavy on another still gets its real angles;
+# a candidate clearing none of them produces no files at all.
+MIN_INDIVIDUAL = 25_000   # donor-size, geography, donor-blocs (individual $)
+MIN_DONORS = 50           # donor-size needs enough positive gifts for a waffle
+MIN_BACKING = 25_000      # composition, interest-blocs, ie-air-war (total backing $)
+MIN_PAC = 10_000          # pac-roster (direct PAC $)
+
 
 def pattern_clause(bloc: dict) -> str:
     col = bloc["field"]
@@ -486,11 +495,12 @@ def build_angles(cand: dict, d: dict) -> tuple[list[dict], list[tuple[str, str]]
     chart-ready dict and `skipped` records (id, why) for transparency.
 
     Inclusion rule: STRUCTURAL angles (composition, donor-size, geography,
-    pac-roster) are emitted whenever their channel has money — even below their
-    headline floor, because the inverse ('rooted at home', 'no air war') is itself
-    informative. SIGNAL angles (interest blocs, IE air war, donor keyword blocs)
-    are emitted only when they clear a materiality floor, so we never ship a chart
-    of noise.
+    pac-roster) are emitted whenever their channel clears its viability floor
+    (MIN_*) — even below their headline floor, because the inverse ('rooted at
+    home', 'no air war') is itself informative. SIGNAL angles (interest blocs, IE
+    air war, donor keyword blocs) are emitted only when they also clear a
+    materiality share floor, so we never ship a chart of noise. A candidate below
+    every viability floor yields no angles at all (not viable for a graphic).
     """
     ind, raised, backing = d["ind"], d["raised"], d["backing"]
     dpac, ie_s, ie_o = d["dpac_amt"], d["ie_s"], d["ie_o"]
@@ -510,42 +520,66 @@ def build_angles(cand: dict, d: dict) -> tuple[list[dict], list[tuple[str, str]]
             "footnotes": footnotes, "source": source,
         })
 
-    # 01 — donor size (structural)
-    if ind > 0:
-        ss, ls = d["small_dollar_share"], d["low_small_share"]
-        mp_amt, mp_share = d["maxplus"][2], d["maxplus_share"]
-        featured = ls >= FLOOR_LOW_SMALL
-        rows = [{"bucket": BUCKET_LABEL.get(str(b)[:1], str(b)),
-                 "amount": float(amt), "count": int(n),
-                 "share_of_individual": _r4(float(amt) / ind)} for b, n, amt in d["buckets"]]
+    # 01 — donor size (structural). Distribution of POSITIVE itemized gifts by
+    # size. The bucket count is contribution rows (gifts), not unique donors — FEC
+    # bulk data has no donor identity — so everything is labeled "gifts". The
+    # negative refund and zero-dollar rows are excluded and the denominator is the
+    # positive-gift universe, so the displayed shares reconcile to 100%.
+    by_pre = {str(b)[:1]: (int(n), float(amt)) for b, n, amt in d["buckets"]}
+    pos = [(b, int(n), float(amt)) for b, n, amt in d["buckets"]
+           if str(b)[:1] != "5" and float(amt) > 0]
+    pos_amt = sum(a for _, _, a in pos)
+    pos_n = sum(n for _, n, _ in pos)
+    refund_n, refund_amt = by_pre.get("5", (0, 0.0))
+    if pos_amt >= MIN_INDIVIDUAL and pos_n >= MIN_DONORS:
+        small_amt = by_pre.get("1", (0, 0.0))[1]
+        mp_amt = by_pre.get("4", (0, 0.0))[1]
+        ss, mp_share = small_amt / pos_amt, mp_amt / pos_amt
+        featured = (1 - ss) >= FLOOR_LOW_SMALL
+        rows = [{"bucket": BUCKET_LABEL.get(str(b)[:1], str(b)), "amount": amt,
+                 "count": n, "share_of_individual": _r4(amt / pos_amt)}
+                for b, n, amt in pos]
         reason = (
-            f"Maxed-out donors (≥${NEAR_MAX:,}) supplied {money(mp_amt)} "
-            f"({_p1(mp_share)}) while small-dollar gifts (≤$200) are only {_p1(ss)} "
-            f"of individual money — clears the donor-concentration flag "
-            f"(small-dollar under {_p1(1 - FLOOR_LOW_SMALL)})."
+            f"The largest gifts (≥${NEAR_MAX:,}) account for {money(mp_amt)} "
+            f"({_p1(mp_share)}) of itemized money, while small-dollar gifts (≤$200) "
+            f"are only {_p1(ss)} — clears the concentration flag (small-dollar under "
+            f"{_p1(1 - FLOOR_LOW_SMALL)})."
             if featured else
-            f"Small-dollar gifts (≤$200) are {_p1(ss)} of individual money; "
-            f"below the concentration flag, shown as the check-size distribution.")
+            f"Small-dollar gifts (≤$200) are {_p1(ss)} of itemized money; below the "
+            f"concentration flag, shown as the gift-size distribution.")
+        notes = [
+            "Counts are itemized contributions (gifts), not unique donors — FEC bulk "
+            "data has no donor identity. Gifts under $200 are not itemized, so the "
+            "true small-dollar share is higher than shown.",
+            "Shares are of positive itemized gifts; PAC money is excluded."]
+        if refund_amt:
+            notes.append(f"Excludes {money(refund_amt)} in refunds/negative "
+                         f"adjustments ({refund_n} rows), not part of the gift universe.")
         angle(
             "01", "donor-size", "Big checks vs. grassroots", reason,
-            "small_dollar_share", ss,
-            f"Flagged as concentrated when small-dollar share < {_p1(1 - FLOOR_LOW_SMALL)}; "
-            f"this candidate is at {_p1(ss)}.",
+            # small_gift_share: small-gift dollars / positive itemized-gift dollars
+            # (distinct from the ranker's net-based small_dollar_share — see
+            # docs/CALCULATIONS.md), so the chart reconciles to 100%.
+            "small_gift_share", ss,
+            f"Flagged as concentrated when the small-gift share (≤$200) is < "
+            f"{_p1(1 - FLOOR_LOW_SMALL)}; this candidate is at {_p1(ss)}.",
             featured,
-            (f"{_p1(ss)} grassroots, {_p1(mp_share)} from maxed-out donors"
-             if featured else "Where the individual money came from, by check size"),
-            f"Where {name}'s {money(ind)} in individual donations came from, by check size",
+            (f"{_p1(ss)} small-dollar, {_p1(mp_share)} from the largest gifts"
+             if featured else "Where the itemized money came from, by gift size"),
+            f"How {name}'s {money(pos_amt)} in itemized gifts breaks down by gift size",
             {"type": "bar", "unit": "USD",
-             "denominator": {"label": "Total individual donations",
-                             "amount": float(ind), "count": d["ind_count"]},
+             "denominator": {"label": "Total itemized gifts", "amount": pos_amt,
+                             "count": pos_n},
              "rows": rows},
-            ["Itemized individual contributions only (FEC does not itemize gifts under "
-             "$200, so true small-dollar share is somewhat higher than shown).",
-             "Shares are of individual money; PAC money is excluded from this denominator."],
+            notes,
             "FEC 2026 cycle; sql/queries/candidate_buckets.sql via candidate_money view")
+    elif pos_amt > 0:
+        skipped.append(("donor-size", f"itemized gifts {money(pos_amt)} / {pos_n} "
+                        f"below viability floor "
+                        f"({money(MIN_INDIVIDUAL)} / {MIN_DONORS})"))
 
     # 02 — geography (structural)
-    if ind > 0:
+    if ind >= MIN_INDIVIDUAL:
         oos = d["out_of_state_share"]
         featured = oos >= FLOOR_OUT_OF_STATE
         rows, top_amt, top_n = [], 0.0, 0
@@ -590,9 +624,12 @@ def build_angles(cand: dict, d: dict) -> tuple[list[dict], list[tuple[str, str]]
              "donor state and is excluded.",
              "Donor state is a proxy for locality — FEC gives state, not district."],
             "FEC 2026 cycle; sql/queries/candidate_top_states.sql via candidate_money view")
+    elif ind > 0:
+        skipped.append(("geography", f"individual {money(ind)} below "
+                        f"{money(MIN_INDIVIDUAL)} floor"))
 
     # 03 — composition (structural)
-    if raised > 0 or ie_s or ie_o:
+    if backing >= MIN_BACKING:
         out_share = d["outside_share"]
         featured = out_share >= FLOOR_OUTSIDE
         rows = [
@@ -641,9 +678,12 @@ def build_angles(cand: dict, d: dict) -> tuple[list[dict], list[tuple[str, str]]
              "Total backing = raised + IE support; IE opposing is excluded (it aids the opponent).",
              "Direct PAC excludes IE/coordinated types (24E/24A/24C/24N) to avoid double-counting."],
             "FEC 2026 cycle; sql/queries/candidate_totals.sql via candidate_money view")
+    elif raised > 0 or ie_s or ie_o:
+        skipped.append(("composition", f"total backing {money(backing)} below "
+                        f"{money(MIN_BACKING)} floor"))
 
     # 04 — PAC roster (structural)
-    if dpac > 0:
+    if dpac >= MIN_PAC:
         ps = d["pac_share"]
         featured = ps >= FLOOR_PAC
         rows, top_amt, top_n = [], 0.0, 0
@@ -679,13 +719,16 @@ def build_angles(cand: dict, d: dict) -> tuple[list[dict], list[tuple[str, str]]
              "types (24E/24A/24C/24N).",
              "cmte_tp is the FEC committee type (Q = qualified non-party PAC)."],
             "FEC 2026 cycle; sql/queries/candidate_top_direct_pac.sql")
+    elif dpac > 0:
+        skipped.append(("pac-roster", f"direct PAC {money(dpac)} below "
+                        f"{money(MIN_PAC)} floor"))
     elif raised > 0:
         skipped.append(("pac-roster", "no direct PAC money"))
 
     # 05 — committee interest blocs (signal: must clear FLOOR_BLOC)
     cbloc_rows = [(cat, float(p or 0), float(i or 0)) for cat, p, i in d["cblocs"]]
     cbloc_max = max(((p + i) / backing for _, p, i in cbloc_rows), default=0.0) if backing else 0.0
-    if cbloc_rows and cbloc_max >= FLOOR_BLOC:
+    if cbloc_rows and backing >= MIN_BACKING and cbloc_max >= FLOOR_BLOC:
         rows = [{"category": cat, "direct_pac_amount": p, "ie_support_amount": i,
                  "total": p + i, "share_of_backing": _r4((p + i) / backing)}
                 for cat, p, i in cbloc_rows]
@@ -705,12 +748,12 @@ def build_angles(cand: dict, d: dict) -> tuple[list[dict], list[tuple[str, str]]
             ["Curated committee tags from dim_group_mappings; stances are separate "
              "categories and are never summed together."],
             "FEC 2026 cycle; sql/queries/candidate_interest_blocs.sql")
-    elif cbloc_rows:
+    elif cbloc_rows and backing >= MIN_BACKING:
         skipped.append(("interest-blocs", f"largest bloc {_p1(cbloc_max)} < {_p1(FLOOR_BLOC)} floor"))
 
     # 06 — IE air war (signal: material outside spending)
     ie_material = (d["outside_share"] >= FLOOR_OUTSIDE) or (backing and ie_o > 0.05 * backing)
-    if ie_material and d["top_ie"]:
+    if ie_material and d["top_ie"] and backing >= MIN_BACKING:
         rows = [{"spender": nm, "support_oppose": so, "amount": float(amt)}
                 for nm, so, amt in d["top_ie"]]
         angle(
@@ -730,11 +773,12 @@ def build_angles(cand: dict, d: dict) -> tuple[list[dict], list[tuple[str, str]]
             ["Independent expenditures are uncapped and not controlled by the candidate.",
              "Opposing IE works for the opponent and is excluded from total backing."],
             "FEC 2026 cycle; sql/queries/candidate_top_ie_spenders.sql")
-    elif ie_s or ie_o:
+    elif (ie_s or ie_o) and backing >= MIN_BACKING:
         skipped.append(("ie-air-war", "IE present but below materiality; shown in composition"))
 
     # 07 — donor keyword blocs (signal, fuzzy: must clear FLOOR_BLOC)
-    kw = [b for b in d["keyword_blocs"] if ind and b["amount"] / ind >= FLOOR_BLOC]
+    kw = ([b for b in d["keyword_blocs"] if b["amount"] / ind >= FLOOR_BLOC]
+          if ind >= MIN_INDIVIDUAL else [])
     if kw:
         rows = [{"bloc": b["label"], "amount": b["amount"], "count": b["count"],
                  "share_of_individual": _r4(b["amount"] / ind),
@@ -782,6 +826,13 @@ def export_infographic_mode(con, candidate: str, out_dir: Path,
     }
     d = gather_profile(con, cand_id, state)
     angles, skipped = build_angles(cand, d)
+
+    if not angles:
+        print(f"{name} ({cand_id}) is not viable for an infographic — every angle is "
+              f"below its volume floor; nothing written.")
+        for aid, why in skipped:
+            print(f"  · skipped  {aid:<16} ({why})", file=sys.stderr)
+        return 0
 
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"Exporting infographic angles for {name} ({cand_id}) -> {out_dir}")

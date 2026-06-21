@@ -11,5 +11,6 @@ SELECT
 FROM candidate_money
 WHERE cand_id = $cand_id
   AND channel = 'individual'
+  AND amount <> 0
 GROUP BY 1
 ORDER BY 1;

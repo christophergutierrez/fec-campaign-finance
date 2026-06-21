@@ -143,6 +143,16 @@ small_dollar_amount = individual donations where 0 < amount <= 200
 Denominator: `individual_amount`. The ranker flags the *inverse* (donor
 concentration = `1 - small_dollar_share`) with floor 0.90 (i.e. <10% small-dollar).
 
+> **Export variant — `small_gift_share`.** The donor-size infographic
+> (`influence.py --export-infographic`) reports a deliberately distinct metric,
+> `small_gift_share = small_gift_amount / positive_itemized_gift_amount`, whose
+> denominator is the **positive** itemized-gift universe (refunds/negative and
+> zero-dollar rows excluded) rather than net `individual_amount`. This is so the chart's bars and
+> waffle reconcile to 100% — you cannot draw a negative gift. It equals
+> `small_dollar_share` whenever a candidate has no refunds; the two diverge only
+> for refund-heavy candidates. The ranker and all other metrics stay on the
+> net-based `small_dollar_share` defined above.
+
 ### Interest-bloc share — `interest_share`
 Share of total backing from one curated interest category (`dim_group_mappings`),
 counting both direct PAC and IE support from tagged committees. This is what powers
