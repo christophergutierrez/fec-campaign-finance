@@ -13,7 +13,7 @@ image model can never corrupt a digit.
 
 Architecture, built to grow to many graphic types:
   * `Svg` — a tiny builder with primitives (text/rect/circle/line) plus reusable
-    chart components (waffle, stacked_bar, scaled_columns, legend).
+    chart components (waffle, stacked_bar, scaled_columns, legend, donut, hbar_ranking).
   * `draw_shell()` — the chrome every angle shares (headline, candidate card,
     callout strip, footnotes/source), all read straight from the JSON schema.
   * `@angle(id)` registry — each graphic is a small body function that draws only
@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -150,6 +151,37 @@ class Svg:
             self.circle(x + 6, yy - 4, 6.5, color)
             self.text(x + 22, yy, label, 15, 400, INK, keys=True)
 
+    def donut(self, cx, cy, r, thickness, segments) -> None:
+        """Ring chart. segments: list of (frac, color), drawn clockwise from top."""
+        circ = 2 * math.pi * r
+        cum = 0.0
+        for frac, color in segments:
+            seg = frac * circ
+            self.raw(f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" '
+                     f'stroke="{color}" stroke-width="{thickness}" '
+                     f'stroke-dasharray="{seg:.2f} {circ - seg:.2f}" '
+                     f'stroke-dashoffset="{-cum:.2f}" '
+                     f'transform="rotate(-90 {cx} {cy})"/>')
+            cum += seg
+
+    def hbar_ranking(self, x, y, w, row_h, rows) -> None:
+        """Horizontal bar ranking. rows: list of (label, value, share, color, bold).
+
+        Bars scale to the largest value; each is labeled with its $ and %.
+        """
+        ref = max((v for _, v, _, _, _ in rows), default=0) or 1
+        label_w, gap = 150, 8
+        bar_x = x + label_w
+        bar_max = w - label_w - 150
+        bh = min(20, row_h - 8)
+        for i, (label, value, share, color, bold) in enumerate(rows):
+            yy = y + i * row_h
+            self.text(x, yy + bh - 3, label, 14, 700 if bold else 400, INK)
+            bw = bar_max * (value / ref)
+            self.rect(bar_x, yy, bw, bh, fill=color)
+            self.text(bar_x + bw + gap, yy + bh - 3,
+                      f"{money(value)} ({share * 100:.1f}%)", 13, 400, MUTE)
+
     def render(self) -> str:
         return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.w} '
                 f'{self.h}" font-family="Helvetica Neue, Arial, sans-serif">\n'
@@ -169,9 +201,12 @@ def draw_shell(c: Svg, d: dict) -> None:
     c.circle(86, 174, 38, INK)
     c.text(86, 184, initials, 26, 700, "#ffffff", anchor="middle")
     c.text(142, 168, cand["name"], 27, 700, INK)
-    meta = (f'FEC {cand["cand_id"]}   •   {cand["party"]}   •   {cand["office"]}, '
-            f'{cand["state"]}-{cand["district"]}   •   {cand["incumbency"]}   •   '
-            f'{cand["region_note"]}')
+    # District is only meaningful for the House; Senate/President use "00".
+    seat = (f'{cand["office"]}, {cand["state"]}-{cand["district"]}'
+            if str(cand.get("district")) not in ("00", "", "None", None)
+            else f'{cand["office"]}, {cand["state"]}')
+    meta = (f'FEC {cand["cand_id"]}   •   {cand["party"]}   •   {seat}   •   '
+            f'{cand["incumbency"]}   •   {cand["region_note"]}')
     c.text(142, 200, meta, 17, 400, MUTE)
 
     # Callout strip (angle label + threshold + denominator). "Featured" means the
@@ -261,6 +296,42 @@ def body_donor_size(c: Svg, d: dict) -> None:
          f"{short[MAX]} · {counts[MAX]:,} gifts"),
         (RX + 330, 120, amts[GRASS], RAMP[GRASS], names[GRASS].upper(),
          f"{short[GRASS]} · {counts[GRASS]:,} gifts")])
+
+
+@angle("geography")
+def body_geography(c: Svg, d: dict) -> None:
+    chart = d["chart"]
+    den_amt = float(chart["denominator"]["amount"]) or 0.0
+    summ = chart["summary"]
+    in_amt, in_sh = float(summ["in_state_amount"]), float(summ["in_state_share"])
+    oos_amt, oos_sh = float(summ["out_of_state_amount"]), float(summ["out_of_state_share"])
+    home = d["candidate"]["state"]
+    HOME_C, OOS_C, OTHER_C = "#475569", ACCENT, "#cbd5e1"  # crimson = the story
+    MIDX = 702
+    c.line(MIDX, 250, MIDX, BODY_BOTTOM)
+
+    # LEFT — in-state vs out-of-state donut
+    c.text(MARGIN, 270, "IN-STATE vs. OUT-OF-STATE", 19, 700, INK)
+    c.text(MARGIN, 292, f"of {money(den_amt)} in individual gifts", 14, 400, MUTE)
+    cx, cy = 210, 462
+    c.donut(cx, cy, 120, 48, [(oos_sh, OOS_C), (in_sh, HOME_C)])
+    c.text(cx, cy - 2, f"{oos_sh * 100:.0f}%", 46, 800, OOS_C, anchor="middle")
+    c.text(cx, cy + 28, "OUT OF STATE", 15, 700, MUTE, anchor="middle")
+    c.legend(MARGIN + 4, 616, [
+        (OOS_C, f"Out of state — {money(oos_amt)} · {oos_sh * 100:.1f}%"),
+        (HOME_C, f"{home} (home) — {money(in_amt)} · {in_sh * 100:.1f}%")])
+
+    # RIGHT — top donor states, home highlighted
+    RX, RW = 720, 650
+    c.text(RX, 270, "TOP DONOR STATES", 19, 700, INK)
+    c.text(RX, 292, f"individual gifts by donor state · {home} is home", 14, 400, MUTE)
+    rows = []
+    for row in chart["rows"]:
+        is_home = bool(row.get("in_state"))
+        color = HOME_C if is_home else (OTHER_C if row.get("state") is None else "#94a3b8")
+        rows.append((row["label"], float(row["amount"]),
+                     float(row["share_of_individual"]), color, is_home))
+    c.hbar_ranking(RX, 322, RW, row_h=min(34, 300 / max(len(rows), 1)), rows=rows)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

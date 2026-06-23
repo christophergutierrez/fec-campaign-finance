@@ -51,6 +51,37 @@ def donor_size_fixture(counts, amounts):
     }
 
 
+def geography_fixture(home_amt, oos_states):
+    """oos_states: list of (state, label, amount). Plus the home state."""
+    den = home_amt + sum(a for _, _, a in oos_states)
+    rows = [{"state": "NM", "label": "New Mexico (home)", "amount": home_amt,
+             "count": 100, "share_of_individual": home_amt / den, "in_state": True}]
+    for st, label, amt in oos_states:
+        rows.append({"state": st, "label": label, "amount": amt, "count": 50,
+                     "share_of_individual": amt / den, "in_state": False})
+    oos_amt = den - home_amt
+    return {
+        "candidate": {"cand_id": "S0NM00058", "name": "Ben Ray Lujan", "party": "DEM",
+                      "office": "U.S. Senate", "state": "NM", "district": "00",
+                      "incumbency": "Incumbent", "region_note": "U.S. Senate, NM"},
+        "angle": {"id": "geography", "title": "In-state vs. out-of-state",
+                  "metric": "out_of_state_share", "metric_value": oos_amt / den,
+                  "threshold": "Flagged when out-of-state ≥ 40%.", "featured": True},
+        "headline": f"{oos_amt / den * 100:.1f}% out-of-state money",
+        "subhead": "by donor state",
+        "chart": {"type": "bar", "unit": "USD",
+                  "denominator": {"label": "Total individual donations",
+                                  "amount": den, "count": 100 + 50 * len(oos_states)},
+                  "rows": rows,
+                  "summary": {"in_state_amount": home_amt,
+                              "in_state_share": home_amt / den,
+                              "out_of_state_amount": oos_amt,
+                              "out_of_state_share": oos_amt / den}},
+        "footnotes": ["Geography is for individual donors only."],
+        "source": "FEC 2026 cycle; sql/queries/candidate_top_states.sql",
+    }
+
+
 class RenderInfographicTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -87,9 +118,23 @@ class RenderInfographicTests(unittest.TestCase):
         ET.fromstring(svg)
         self.assertIn("Maxed-out", svg)     # tier still labeled, just at zero
 
+    def test_geography_renders_with_exact_figures(self) -> None:
+        d = geography_fixture(358792, [("CA", "California", 233460),
+                                       ("DC", "Washington, D.C.", 153555),
+                                       ("NY", "New York", 114885)])
+        svg = self.mod.render(d)
+        self.assertTrue(svg.lstrip().startswith("<svg"))
+        ET.fromstring(svg)
+        # home 358,792 of 860,692 -> 41.7% in / 58.3% out.
+        for token in ["Ben Ray Lujan", "58.3%", "$358,792", "$233,460",
+                      "New Mexico (home)", "California"]:
+            self.assertIn(token, svg, f"missing {token!r}")
+        # Senate card drops the meaningless "-00" district.
+        self.assertNotIn("NM-00", svg)
+
     def test_unimplemented_angle_exits_cleanly(self) -> None:
         d = donor_size_fixture([1, 1, 1, 1], [1, 1, 1, 1])
-        d["angle"]["id"] = "geography"
+        d["angle"]["id"] = "composition"          # no body renderer yet
         with self.assertRaises(SystemExit):
             self.mod.render(d)
 

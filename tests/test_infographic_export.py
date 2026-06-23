@@ -76,7 +76,7 @@ class InfographicExportTests(unittest.TestCase):
     def test_files_written_and_named(self) -> None:
         self.assertTrue(self.files, "no angle files were written")
         for f in self.files:
-            self.assertRegex(f.name, r"^\d{2}-[a-z-]+\.json$")
+            self.assertRegex(f.name, r"^[a-z][a-z-]*\.json$")
 
     def test_each_file_has_required_schema(self) -> None:
         for f, d in zip(self.files, self.docs):

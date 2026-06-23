@@ -86,6 +86,15 @@ class BuildAnglesTests(unittest.TestCase):
         sql = (ROOT / "sql" / "queries" / "candidate_buckets.sql").read_text()
         self.assertIn("amount <> 0", sql)
 
+    def test_canonical_dirname(self) -> None:
+        cd = self.inf.canonical_dirname
+        self.assertEqual(cd("S", "NM", "00", "LUJAN, BEN RAY"),
+                         "nm-senate-lujan-ben-ray")
+        self.assertEqual(cd("H", "NM", "3", "LEGER FERNANDEZ, TERESA"),
+                         "nm-house-03-leger-fernandez-teresa")  # district zero-padded
+        self.assertEqual(cd("P", "US", "00", "SMITH, JOHN Q."),
+                         "us-president-smith-john-q")            # no district, punct stripped
+
 
 if __name__ == "__main__":
     unittest.main()

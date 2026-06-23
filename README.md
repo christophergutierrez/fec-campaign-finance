@@ -15,7 +15,7 @@ bin/      executable tools (uv self-contained scripts)
             gen_dict.py       regenerate docs/DATA_DICTIONARY.md from the live DB
             influence.py      funding-influence profile / cohort ranking
                               (--export-infographic DIR writes chart-ready angle JSON)
-            render_infographic.py  render an angle JSON to an exact SVG (donor-size)
+            render_infographic.py  render an angle JSON to an exact SVG (donor-size, geography)
 sql/      executable semantic layer (canonical temp views + report queries)
 model/    semantic layer + curated inputs
             fec.malloy             semantic model (joins + measures)
@@ -60,21 +60,22 @@ writable cache path such as `UV_CACHE_DIR=/tmp/uv-cache`. The project also has a
 signals), each a self-contained brief for one static chart:
 
 ```bash
-uv run bin/influence.py S6MI00426 --export-infographic infographics/stevens
+uv run bin/influence.py S0NM00058 --export-infographic   # canonical path, no DIR needed
 ```
 
-Output lands in the given directory as `NN-<angle-id>.json`. `infographics/` is
-git-ignored — the files are regenerable output, not source. Which angles appear
+With no `DIR`, output lands in a standard per-candidate folder
+`infographics/<st>-<chamber>[-<dd>]-<last-first>/<angle-id>.json`. `infographics/` is
+git-ignored — the files are regenerable artifacts, not source. Which angles appear
 differs per candidate: structural angles always emit, while outside-money/interest
 signals appear only when they clear a materiality floor.
 
 `bin/render_infographic.py` turns an angle JSON into an **exact SVG** (every figure
 and bar computed from the data — the "truth layer" you composite over generated art).
-The `donor-size` angle is implemented today; other angles are added via the
-documented extension path (unsupported angles exit with a clear message):
+The `donor-size` and `geography` angles are implemented today; others are added via
+the documented extension path (unsupported angles exit with a clear message):
 
 ```bash
-uv run bin/render_infographic.py infographics/stevens/01-donor-size.json
+uv run bin/render_infographic.py infographics/nm-senate-lujan-ben-ray/geography.json
 ```
 
 See `docs/INFOGRAPHIC_EXPORT.md` for the angle catalog, inclusion rules, JSON schema,

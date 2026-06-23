@@ -6,15 +6,31 @@ self-contained brief for one static chart, designed to hand directly to an
 infographic maker.
 
 ```bash
-uv run bin/influence.py S6MI00426 --export-infographic infographics/stevens
-uv run bin/influence.py H0NM03102 --export-infographic infographics/leger-fernandez-nm03 \
-    --region-note "Represents Taos, NM (NM-03)"
+# Canonical path (recommended): pass --export-infographic with no DIR.
+uv run bin/influence.py S0NM00058 --export-infographic \
+    --region-note "U.S. Senator for New Mexico"
+# -> infographics/nm-senate-lujan-ben-ray/{geography,pac-roster,...}.json
+
+# Or pass an explicit directory:
+uv run bin/influence.py H0NM03102 --export-infographic /tmp/leger
 ```
 
-Output goes to `DIR` as `NN-<angle-id>.json` (e.g. `01-donor-size.json`). `DIR` is
-created if needed. **`infographics/` is git-ignored** — these files are regenerable
-output, not source; the generator (this mode) is the durable artifact. `--region-note`
-is an optional locality string for the candidate header; it defaults to the seat.
+**Naming convention.** With no `DIR`, the export writes to a standard per-candidate
+folder under `infographics/`:
+
+```
+infographics/<st>-<chamber>[-<dd>]-<last-first>/<angle-id>.{json,svg}
+   nm-senate-lujan-ben-ray/geography.json
+   nm-house-03-leger-fernandez-teresa/donor-size.json   # district zero-padded, House only
+   us-president-<last-first>/...
+```
+
+`<chamber>` is `house` / `senate` / `president` (not "congress" — both chambers are
+Congress). The name slugs from the raw FEC `LAST, FIRST`, so folders sort by surname.
+**`infographics/` is git-ignored** — the JSON/SVG are regenerable artifacts that live
+in this directory structure locally but are never committed; the generator is the
+durable source. `--region-note` is an optional locality string for the candidate
+header; it defaults to the seat.
 
 This doc describes the *output contract*. The underlying metrics, denominators, and
 materiality floors are defined once in `docs/CALCULATIONS.md` and the `sql/` layer —
@@ -145,14 +161,14 @@ that require human knowledge — enrich those by hand after export if desired.
 
 The angle JSON is the data; `bin/render_infographic.py` turns one angle into an
 **exact SVG** — the "truth layer". Every number, bar, and dot is computed from the
-JSON, so figures and geometry cannot be wrong. **Only `donor-size` is implemented
-today**; other angles exit with a clear message until a body renderer is added (see
-"Adding a new graphic type" below).
+JSON, so figures and geometry cannot be wrong. **`donor-size` and `geography` are
+implemented today**; other angles exit with a clear message until a body renderer is
+added (see "Adding a new graphic type" below).
 
 ```bash
-uv run bin/render_infographic.py infographics/leger-fernandez-nm03/01-donor-size.json
-# -> writes 01-donor-size.svg alongside it; rasterize with:
-rsvg-convert -w 1400 01-donor-size.svg -o 01-donor-size.png   # or: uv run --with cairosvg ...
+uv run bin/render_infographic.py infographics/nm-senate-lujan-ben-ray/geography.json
+# -> writes geography.svg alongside it; rasterize with:
+rsvg-convert -w 1400 infographics/nm-senate-lujan-ben-ray/geography.svg -o geography.png
 ```
 
 **Why SVG, and why it composites *on top*.** Diffusion image models (Nano Banana,
@@ -164,9 +180,9 @@ layered **over** it. The model never renders a digit, so it can never corrupt on
 ### Architecture (built to grow to many graphic types)
 
 - `Svg` — a small builder: primitives (`text`/`rect`/`circle`/`line`) plus reusable
-  chart components (`waffle`, `stacked_bar`, `scaled_columns`, `legend`). The waffle
-  auto-scales its dot unit to fit a fixed box (1 dot = 1 gift for small fields,
-  "≈ N gifts" for large ones) so any candidate fits.
+  chart components (`waffle`, `stacked_bar`, `scaled_columns`, `legend`, `donut`,
+  `hbar_ranking`). The waffle auto-scales its dot unit to fit a fixed box (1 dot =
+  1 gift for small fields, "≈ N gifts" for large ones) so any candidate fits.
 - `draw_shell()` — the chrome every angle shares (headline + subhead with automatic
   crimson emphasis on money/percent tokens, candidate card, callout strip, footnotes,
   source), read **straight from the JSON schema**. Identical for all angles.

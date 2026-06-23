@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -473,6 +474,25 @@ def format_name(fec_name: str) -> str:
     else:
         s = fec_name
     return " ".join(w.capitalize() if w.isupper() else w for w in s.split())
+
+
+OFFICE_SLUG = {"H": "house", "S": "senate", "P": "president"}
+
+
+def canonical_dirname(office: str, state: str, district: str, fec_name: str) -> str:
+    """Standard artifact folder name: <st>-<chamber>[-<dd>]-<last-first>.
+
+    e.g. nm-senate-lujan-ben-ray, nm-house-03-leger-fernandez-teresa. The FEC
+    name is already 'LAST, FIRST', so slugging it yields last-first ordering.
+    """
+    name_slug = re.sub(r"[^a-z0-9]+", "-", fec_name.lower()).strip("-")
+    parts = [state.lower(), OFFICE_SLUG.get(office, office.lower())]
+    if office == "H":
+        parts.append(str(district).zfill(2))
+    parts.append(name_slug)
+    return "-".join(parts)
+
+
 BUCKET_LABEL = {
     "1": "Small (≤$200)", "2": "Mid ($201–$999)",
     "3": "Large ($1k–$3.4k)", "4": "Maxed out (≥$3,500)",
@@ -806,11 +826,14 @@ def build_angles(cand: dict, d: dict) -> tuple[list[dict], list[tuple[str, str]]
     return emitted, skipped
 
 
-def export_infographic_mode(con, candidate: str, out_dir: Path,
+def export_infographic_mode(con, candidate: str, out_dir: Path | None,
                             region_note: str | None) -> int:
     cand_id, name, office, state, district, party = resolve_candidate(con, candidate)
     if not committee_count(con, cand_id):
         sys.exit(f"{name} ({cand_id}) has no attributable committees — nothing to export.")
+    # Default to the canonical artifact folder under infographics/.
+    if out_dir is None:
+        out_dir = ROOT / "infographics" / canonical_dirname(office, state, district, name)
     ici, elect_yr = con.execute(
         "SELECT CAND_ICI, CAND_ELECTION_YR FROM dim_candidates WHERE CAND_ID = ?",
         [cand_id]).fetchone()
@@ -837,8 +860,8 @@ def export_infographic_mode(con, candidate: str, out_dir: Path,
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"Exporting infographic angles for {name} ({cand_id}) -> {out_dir}")
     for a in angles:
-        n = a.pop("_n")
-        path = out_dir / f"{n}-{a['angle']['id']}.json"
+        a.pop("_n")
+        path = out_dir / f"{a['angle']['id']}.json"
         path.write_text(json.dumps(a, indent=2, ensure_ascii=False) + "\n")
         flag = "★ featured" if a["angle"]["featured"] else "  context"
         print(f"  {flag}  {path.name}")
@@ -865,8 +888,10 @@ def main(argv=None) -> int:
                     help="min individual $ to include in cohort (default 50k)")
     ap.add_argument("--limit", type=int, default=0,
                     help="show only the top N most-extreme members (0 = all)")
-    ap.add_argument("--export-infographic", metavar="DIR",
-                    help="write one chart-ready JSON file per relevant angle into DIR")
+    ap.add_argument("--export-infographic", metavar="DIR", nargs="?",
+                    const="__AUTO__", default=None,
+                    help="write one chart-ready JSON per relevant angle. With no DIR, "
+                         "uses the canonical infographics/<st>-<chamber>[-<dd>]-<name>/")
     ap.add_argument("--region-note",
                     help="locality string for the candidate header in exports "
                          "(e.g. 'Represents Taos, NM (NM-03)')")
@@ -887,8 +912,8 @@ def main(argv=None) -> int:
     if not args.candidate:
         sys.exit("Pass a candidate name/CAND_ID, or use --rank for cohort mode.")
     if args.export_infographic:
-        return export_infographic_mode(
-            con, args.candidate, Path(args.export_infographic), args.region_note)
+        out_dir = None if args.export_infographic == "__AUTO__" else Path(args.export_infographic)
+        return export_infographic_mode(con, args.candidate, out_dir, args.region_note)
     return profile_mode(con, args.candidate)
 
 
