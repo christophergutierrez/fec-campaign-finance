@@ -22,9 +22,8 @@ CAND = "S6MI00426"  # STEVENS, HALEY — has individual, PAC, and IE channels.
 
 REQUIRED_TOP = {"candidate", "angle", "headline", "subhead", "chart", "footnotes", "source"}
 REQUIRED_ANGLE = {"id", "title", "reason", "metric", "metric_value", "threshold", "featured"}
-# Charts whose rows partition their denominator (carry explicit remainder rows).
-# interest-blocs / donor-blocs are subsets; ie-air-war is top-N without a remainder.
-PARTITION_ANGLES = {"donor-size", "geography", "composition", "pac-roster"}
+# Exported charts currently all partition their denominator.
+PARTITION_ANGLES = {"donor-size", "geography"}
 
 
 def export(out_dir: Path, cand: str = CAND) -> subprocess.CompletedProcess:
@@ -75,6 +74,7 @@ class InfographicExportTests(unittest.TestCase):
 
     def test_files_written_and_named(self) -> None:
         self.assertTrue(self.files, "no angle files were written")
+        self.assertTrue({f.stem for f in self.files} <= PARTITION_ANGLES)
         for f in self.files:
             self.assertRegex(f.name, r"^[a-z][a-z-]*\.json$")
 

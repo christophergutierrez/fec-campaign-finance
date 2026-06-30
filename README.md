@@ -55,9 +55,8 @@ writable cache path such as `UV_CACHE_DIR=/tmp/uv-cache`. The project also has a
 
 ## Infographic export
 
-`bin/influence.py` can emit per-candidate, chart-ready JSON — one file per funding
-"angle" (donor-size, geography, money composition, PAC roster, and outside-spending
-signals), each a self-contained brief for one static chart:
+`bin/influence.py` can emit per-candidate, chart-ready JSON for the two currently
+renderable funding angles (`donor-size` and `geography`):
 
 ```bash
 uv run bin/influence.py S0NM00058 --export-infographic   # canonical path, no DIR needed
@@ -65,21 +64,19 @@ uv run bin/influence.py S0NM00058 --export-infographic   # canonical path, no DI
 
 With no `DIR`, output lands in a standard per-candidate folder
 `infographics/<st>-<chamber>[-<dd>]-<last-first>/<angle-id>.json`. `infographics/` is
-git-ignored — the files are regenerable artifacts, not source. Which angles appear
-differs per candidate: structural angles always emit, while outside-money/interest
-signals appear only when they clear a materiality floor.
+git-ignored — the files are regenerable artifacts, not source. An angle is emitted
+only when its denominator clears the documented viability floor.
 
-`bin/render_infographic.py` turns an angle JSON into an **exact SVG** (every figure
-and bar computed from the data — the "truth layer" you composite over generated art).
-The `donor-size` and `geography` angles are implemented today; others are added via
-the documented extension path (unsupported angles exit with a clear message):
+`bin/render_infographic.py` turns one of those angle JSON files into an **exact SVG**
+(every figure and bar computed from the data — the "truth layer" you composite over
+generated art):
 
 ```bash
 uv run bin/render_infographic.py infographics/nm-senate-lujan-ben-ray/geography.json
 ```
 
 See `docs/INFOGRAPHIC_EXPORT.md` for the angle catalog, inclusion rules, JSON schema,
-the renderer architecture, and how to add a new graphic type.
+and renderer details.
 
 ## Data flow
 

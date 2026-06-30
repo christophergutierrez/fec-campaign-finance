@@ -166,12 +166,6 @@ numerator per category; divide by `total_backing`. Headline floor: 0.08.
 Stances are separate categories (e.g. Israel-aligned vs Israel-dovish vs
 Israel-critical) and are never summed together.
 
-### Donor-keyword bloc share (fuzzy)
-Share of **individual** money from donors whose name/employer matches a keyword bloc
-(e.g. tribes, oil & gas). Denominator: `individual_amount`. These are fuzzy estimates
-(see `influence.py` `BLOCS`), labeled `donors: <bloc>` in the ranker to distinguish
-them from the curated committee blocs above. Headline floor: 0.08.
-
 ### Out-of-state concentration (HHI) — from `individual_by_state`
 Herfindahl index over the out-of-state individual money: is it diffuse (many states)
 or dominated by one?

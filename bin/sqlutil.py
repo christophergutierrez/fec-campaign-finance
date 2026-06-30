@@ -15,13 +15,6 @@ def load_sql(relative_path: str) -> str:
     return (SQL_DIR / relative_path).read_text()
 
 
-def render_sql(relative_path: str, **tokens: str) -> str:
-    sql = load_sql(relative_path)
-    for name, value in tokens.items():
-        sql = sql.replace(f"/*{{{name}}}*/", value)
-    return sql
-
-
 def bind_named(sql: str, params: dict[str, Any]) -> tuple[str, list[Any]]:
     values: list[Any] = []
 
@@ -37,11 +30,6 @@ def bind_named(sql: str, params: dict[str, Any]) -> tuple[str, list[Any]]:
 
 def run_sql(con, relative_path: str, **params: Any):
     sql, values = bind_named(load_sql(relative_path), params)
-    return con.execute(sql, values)
-
-
-def run_rendered_sql(con, relative_path: str, tokens: dict[str, str], **params: Any):
-    sql, values = bind_named(render_sql(relative_path, **tokens), params)
     return con.execute(sql, values)
 
 

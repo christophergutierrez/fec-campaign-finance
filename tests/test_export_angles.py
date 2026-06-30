@@ -1,4 +1,4 @@
-"""Unit tests for `influence.build_angles` — no DB, synthetic profiles.
+"""Unit tests for infographic angle export — no DB, synthetic profiles.
 
 Durable replacement for a live-candidate CLI viability check: exercises the
 below-floor gate and the donor-size refund/positive-gift reconciliation directly
@@ -7,8 +7,6 @@ against the angle-assembly logic.
 from __future__ import annotations
 
 import importlib.util
-import sys
-import types
 import unittest
 from pathlib import Path
 
@@ -16,10 +14,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def load_influence():
-    sys.path.insert(0, str(ROOT / "bin"))                 # for `import sqlutil`
-    sys.modules.setdefault("duckdb", types.SimpleNamespace(connect=lambda *a, **k: None))
-    spec = importlib.util.spec_from_file_location("influence", ROOT / "bin" / "influence.py")
+def load_export_module():
+    spec = importlib.util.spec_from_file_location(
+        "infographic_export",
+        ROOT / "bin" / "infographic_export.py",
+    )
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -41,7 +40,7 @@ def profile(buckets, **over):
         "raised": ind, "backing": ind,
         "state_rows": [("NM", sum(a for _, _, a in pos), 10)],
         "instate": sum(a for _, _, a in pos), "buckets": buckets,
-        "keyword_blocs": [], "cblocs": [], "oos_rows": [], "oos_total": 0.0, "hhi": 0.0,
+        "cblocs": [], "oos_rows": [], "oos_total": 0.0, "hhi": 0.0,
         "top_pacs": [], "top_ie": [],
         "out_of_state_share": 0.0, "small_dollar_share": 0.0, "low_small_share": 0.0,
         "maxplus_share": 0.0, "pac_share": 0.0, "outside_share": 0.0,
@@ -53,11 +52,11 @@ def profile(buckets, **over):
 class BuildAnglesTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.inf = load_influence()
+        cls.export = load_export_module()
 
     def test_below_floor_yields_no_angles(self) -> None:
         d = profile([("1 small  (<=$200)", 5, 500.0)])   # $500 total, tiny
-        emitted, skipped = self.inf.build_angles(CAND, d)
+        emitted, skipped = self.export.build_angles(CAND, d)
         self.assertEqual(emitted, [])
         self.assertTrue(skipped)                          # reasons recorded
 
@@ -67,7 +66,7 @@ class BuildAnglesTests(unittest.TestCase):
                    ("3 large  ($1k-max)", 50, 80000.0),
                    ("4 max+   (>=$3500)", 10, 40000.0),
                    ("5 refund/negative", 8, -30000.0)]
-        emitted, _ = self.inf.build_angles(CAND, profile(buckets))
+        emitted, _ = self.export.build_angles(CAND, profile(buckets))
         ds = next(a for a in emitted if a["angle"]["id"] == "donor-size")
         chart = ds["chart"]
         # Refund row dropped; denominator is the positive-gift universe.
@@ -87,7 +86,7 @@ class BuildAnglesTests(unittest.TestCase):
         self.assertIn("amount <> 0", sql)
 
     def test_canonical_dirname(self) -> None:
-        cd = self.inf.canonical_dirname
+        cd = self.export.canonical_dirname
         self.assertEqual(cd("S", "NM", "00", "LUJAN, BEN RAY"),
                          "nm-senate-lujan-ben-ray")
         self.assertEqual(cd("H", "NM", "3", "LEGER FERNANDEZ, TERESA"),
